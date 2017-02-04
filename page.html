@@ -111,7 +111,7 @@ function readPath(pathElem)
 
 function calcNormals(coords)
 {
-    normals = []
+    var normals = []
     for(var i = 0; i < coords.length; ++i) {
         var prev = coords[(i-1+coords.length) % coords.length] // cyclic
         var cur = coords[i];
@@ -126,6 +126,23 @@ function calcNormals(coords)
         vAddInto(p1, p2)
         vNormalize(p1)
         normals.push(p1)
+    }
+    return normals
+}
+
+function calcNormalsConcentric(coords)
+{
+    var normals = []
+    var avg = [0,0]
+    
+    for(var i = 0; i < coords.length; ++i) {
+        vAddInto(avg, coords[i])
+    }
+    vMult(avg, 1.0/coords.length)
+    for(var i = 0; i < coords.length; ++i) {
+        var toP = vSub(coords[i], avg)
+        vNormalize(toP)
+        normals.push(toP)
     }
     return normals
 }
@@ -216,116 +233,144 @@ function getProjectedPointOnLine(p, v1, v2)
   return p;
 }
 
-//var STEPS = 1200
-var STEPS = 4200
+var STEP_DIST = 10 //10
 
-function continuePath(coords)
+function addNext(cur, prev, srStart, srEnd, checkDirRange, coords)
 {
-    var circ = []
-    var checkDirRange = 0 // first time be more strict to go forward
-    for(var iter = 0; iter < STEPS; ++iter) 
+    var clsD = 9999999
+    var clsP = null
+    var clsAi = -1
+    var clsCoordI = -1
+     
+    // first look for the general range of to look into for neighbors before going on the angles run
+    var fmind = 99999999999
+    var fmini = -1
+    // 0, coords.length-10
+    for(var i = srStart; i < srEnd; ++i) // don't consider the one we are at
     {
-        var cur = coords[coords.length-1]
-        var clsD = 9999999
-        var clsP = null
-        var clsAi = -1
-        var clsCoordI = -1
- 
-        var vprev = vSub(cur, coords[coords.length-2])
-        vNormalize(vprev)
-        
-        // first look for the general range of to look into for neighbors before going on the angles run
-        var fmind = 99999999999
-        var fmini = -1
+        var d = vDistSqr(cur, coords[i])
+        if (d < fmind) {
+            fmind = d
+            fmini = i
+        }
+    }
+    var lrangeA = Math.max(fmini - 100, srStart)
+    var lrangeB = Math.min(fmini + 100, srEnd)
 
-        for(var i = 0; i < coords.length-10; ++i) // don't consider the one we are at
+    // for direction verification
+    var vprev = vSub(cur, prev)
+    vNormalize(vprev)
+    
+    
+    for(var ai = 0; ai < anglesCount; ++ai) 
+    {
+        var vd = [sinTable[ai], cosTable[ai]]
+        var checkDir = vDot(vprev, vd)
+        if (checkDir < checkDirRange)
+            continue
+        vMult(vd, STEP_DIST)
+        var p = vAdd(cur, vd)
+        
+        //circ.push(p)
+        // find nearest point to p
+        var mind = 99999999999
+        var minv = null
+        var mini = -1
+        for(var i = lrangeA; i < lrangeB; ++i) // don't consider the one we are at
         {
-            var d = vDistSqr(cur, coords[i])
-            if (d < fmind) {
-                fmind = d
-                fmini = i
+            var d = vDistSqr(p, coords[i])
+            if (d < mind) {
+                mind = d
+                minv = coords[i]
+                mini = i
             }
         }
-        var lrangeA = Math.max(fmini - 100, 0)
-        var lrangeB = Math.min(fmini + 100, coords.length-10)
-        
-        
-        for(var ai = 0; ai < anglesCount; ++ai) 
+        // find nearest projection on a line to p
+        for(var i = lrangeA; i < lrangeB-1; ++i) 
         {
-            var vd = [sinTable[ai], cosTable[ai]]
-            var checkDir = vDot(vprev, vd)
-            if (checkDir < checkDirRange)
-                continue
-            vMult(vd, GAP)
-            var p = vAdd(cur, vd)
-            
-            circ.push(p)
-            // find nearest point to p
-            var mind = 99999999999
-            var minv = null
-            var mini = -1
-            for(var i = lrangeA; i < lrangeB; ++i) // don't consider the one we are at
-            {
-                var d = vDistSqr(p, coords[i])
+            var pp = getProjectedPointOnLine(p, coords[i], coords[i+1])                
+            if (pp != null) {
+                var d = vDistSqr(p, pp)
                 if (d < mind) {
                     mind = d
                     minv = coords[i]
-                    mini = i
+                    mini = 1000000+i
                 }
-            }
-            // find nearest projection on a line to p
-            for(var i = lrangeA; i < lrangeB; ++i) 
-            {
-                var pp = getProjectedPointOnLine(p, coords[i], coords[i+1])                
-                if (pp != null) {
-                    var d = vDistSqr(p, pp)
-                    if (d < mind) {
-                        mind = d
-                        minv = coords[i]
-                        mini = 1000000+i
-                    }
-                }
-            }
-            
-
-            var np = minv
-            var nd = Math.sqrt(mind)
-            var ndg = Math.abs(nd - GAP)
-
-            //console.log("" + ai + " Nearest " + mini + " " + nd )
-            
-            // if this nearest nei is closer to the gap we want
-            if (ndg < clsD) {
-                clsD = ndg
-                clsP = p
-                clsAi = ai
-                clsCoordI = mini
             }
         }
-        //console.log("----- " + iter + " SELECTED a=" + clsAi + " which is " + clsCoordI + " dg=" + clsD + "  check=" + checkDir)
         
-        coords.push(clsP)
-        checkDirRange = -0.8
+        // how far is the nearest neighbor from this angle point
+        var np = minv
+        var nd = Math.sqrt(mind)
+        var ndg = Math.abs(nd - GAP)
+
+        //console.log("" + ai + " Nearest " + mini + " " + nd )
+        
+        // if this nearest nei is closer to the gap we want
+        if (ndg < clsD) {
+            clsD = ndg
+            clsP = p
+            clsAi = ai
+            clsCoordI = mini
+        }
     }
-    return circ
+    console.log("SELECTED a=" + clsAi + " which is " + clsCoordI + " dg=" + clsD)
+    
+    return clsP
 }
+
+var STEPS = 20
+//var STEPS = 4200
+
+
+function continuePath(coords)
+{
+    var checkDirRange = 0 // first time be more strict to go forward
+
+    // go outside
+    for(var iter = 0; iter < STEPS; ++iter) 
+    {
+        var cur = coords[coords.length-1]
+        var prev = coords[coords.length-2]
+        
+        // don't consider the last 10 items we added
+        var p = addNext(cur, prev, 0, coords.length-10, checkDirRange, coords)
+        checkDirRange = -0.8
+        
+        coords.push(p)
+    }
+    
+    // go inside
+    for(var iter = 0; iter < 20; ++iter)
+    {
+        var cur = coords[0]
+        var prev = coords[1]
+        
+        var p = addNext(cur, prev, 10, coords.length, -0.8, coords)
+        
+        coords.splice(0,0, p)
+    }
+    
+ }
 
 
 function process(pathElem)
 {
     coords = readPath(pathElem) // [x,y]
-    normals = calcNormals(coords) // returns [nx,ny]
+    //normals = calcNormals(coords) // returns [nx,ny]
+    normals = calcNormalsConcentric(coords)
     //draw(coords)
     //drawNormals(coords, normals)
     openEnd(coords, normals)
     calcTables()
+    var stp = coords[0].slice()
     circ = continuePath(coords)
   //  draw(circ)
     
     ctx.fillStyle = "red"
     drawPoints(coords,1)
-  //  ctx.fillStyle = "#00FF00"
-  //  drawPoints([coords[103]],2)
+    ctx.fillStyle = "#00FF00"
+    drawPoints([stp],2)
 
     draw(coords)
 }
