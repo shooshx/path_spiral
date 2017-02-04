@@ -1,0 +1,401 @@
+<html><head>
+<script>
+
+var ctx = null
+
+//var READ_FACTOR = 0.5
+var READ_FACTOR = 1
+
+function start()
+{
+   ctx = canvas.getContext('2d')
+
+   process(the_path2)
+}
+
+function draw(dpath) {
+    ctx.beginPath()
+    ctx.moveTo(dpath[0][0], dpath[0][1])
+    for(var i = 1; i < dpath.length; ++i) {
+        ctx.lineTo(dpath[i][0], dpath[i][1])
+    }
+    ctx.stroke()
+}
+function drawNormals(coords, normals) {
+    for(var i = 1; i < coords.length; ++i) {
+        ctx.beginPath()
+        ctx.moveTo(coords[i][0], coords[i][1])
+    
+        ctx.lineTo(coords[i][0] + normals[i][0]*20, coords[i][1] + normals[i][1]*20)
+        ctx.stroke()
+    }
+}
+function drawPoints(coords,sz)
+{
+    for(var i = 0; i < coords.length; ++i) {
+        ctx.fillRect(coords[i][0]-sz, coords[i][1]-sz, 1+sz*2, 1+sz*2)
+    }
+}
+
+
+function vAddInto(a, b) {
+    a[0] += b[0]
+    a[1] += b[1]
+}
+function vPrn(a) {
+    console.log("["+a[0]+","+a[1]+"]")
+}
+function vMult(a, v) {
+    a[0] *= v
+    a[1] *= v
+}
+function vSub(a, b) {
+    return [a[0]-b[0], a[1]-b[1]]
+}
+function vAdd(a, b) {
+    return [a[0]+b[0], a[1]+b[1]]
+}
+function vPerp(a) {
+    return [a[1],-a[0]]
+}
+function vNormalize(a) {
+    var ilen = 1.0 / Math.sqrt(a[0]*a[0] + a[1]*a[1])
+    a[0] *= ilen
+    a[1] *= ilen
+}
+function vEqEps(a,b,eps) {
+    return Math.abs(a[0]-b[0]) < eps && Math.abs(a[1]-b[1]) < eps
+}
+function vDistSqr(a, b) {
+    var dx = a[0]-b[0]
+    var dy = a[1]-b[1]
+    return dx*dx + dy*dy
+}
+function vDist(a, b) {
+    return Math.sqrt(vDistSqr(a,b))
+}
+function vDot(a, b) {
+    return a[0]*b[0] + a[1]*b[1]
+}
+
+function readPath(pathElem) 
+{
+    var d = pathElem.getAttribute('d')
+    dElem = d.split(' ')
+    var typ = dElem.shift()
+    if (typ != 'm') {
+        console.log("not supported " + typ)
+        return;
+    }
+    cur = [0,0]
+    coords = []
+    for(var i = 0; i < dElem.length; ++i) {
+        cs = dElem[i].split(',')
+        c = [parseFloat(cs[0]), parseFloat(cs[1])]
+        vAddInto(cur, c)
+        var curx = cur.slice()
+        
+        vMult(curx, READ_FACTOR)
+        vAddInto(curx, [350,100])
+        coords.push(curx) // copy it
+    }
+    if (vEqEps(coords[0], coords[coords.length-1], 0.01))
+        coords.pop()
+    return coords
+}
+
+function calcNormals(coords)
+{
+    normals = []
+    for(var i = 0; i < coords.length; ++i) {
+        var prev = coords[(i-1+coords.length) % coords.length] // cyclic
+        var cur = coords[i];
+        var next = coords[(i+1) % coords.length]
+        
+        var dirFromPrev = vSub(cur, prev)
+        var dirFromNext = vSub(next, cur)
+        var p1 = vPerp(dirFromPrev)
+        var p2 = vPerp(dirFromNext)
+        vNormalize(p1)
+        vNormalize(p2)
+        vAddInto(p1, p2)
+        vNormalize(p1)
+        normals.push(p1)
+    }
+    return normals
+}
+
+var GAP = 20
+
+function openEnd(coords, normals)
+{
+    var scalar = 0
+    for(var i = coords.length - 20; i < coords.length; ++i) 
+    {
+        var d = normals[i].slice()
+        vMult(d, scalar*GAP)
+        vAddInto(coords[i], d)
+        scalar += 0.05
+    }
+}
+
+function findNearest(v, coords)
+{
+    var mind = 99999999999
+    var minv = null
+    var mini = -1
+    for(var i = 0; i < coords.length-1; ++i) // don't consider the one we are at
+    {
+        var d = vDistSqr(v, coords[i])
+        if (d < mind) {
+            mind = d
+            minv = coords[i]
+            mini = i
+        }
+    }
+    console.log("Nearest " + i + " " + Math.sqrt(mind))
+    return minv
+}
+
+function mGet(m, x, y) {
+    return m.d[x+y*m.w]
+}
+function mSet(m, x, y, v) {
+    m.d[x+y*m.w] = v
+}
+
+var TWO_PI = 2*Math.PI
+
+var sinTable = []
+var cosTable = []
+var anglesCount = 0;
+
+function calcTables() {
+    for(var phi = 0; phi < TWO_PI; phi += 0.05) 
+    {
+        sinTable[anglesCount] = Math.sin(phi)
+        cosTable[anglesCount] = Math.cos(phi)
+        anglesCount++
+    }
+}
+
+// http://www.sunshine2k.de/coding/java/PointOnLine/PointOnLine.html
+function isProjectedPointOnLineSegment(p, v1, v2)
+{
+  // get dotproduct |e1| * |e2|
+  var e1 = [v2[0] - v1[0], v2[1] - v1[1]];
+  var recArea = vDot(e1, e1);
+  // dot product of |e1| * |e2|
+  var  e2 = [p[0] - v1[0], p[1] - v1[1]];
+  var val = vDot(e1, e2);
+  return (val > 0 && val < recArea);
+}
+function getProjectedPointOnLine(p, v1, v2)
+{
+  // get dot product of e1, e2
+  var e1 = [v2[0] - v1[0], v2[1] - v1[1]];
+  var e2 = [p[0] - v1[0], p[1]  - v1[1]];
+  var valDp = vDot(e1, e2);
+  var recArea = vDot(e1, e1);
+  if (valDp <= 0 || valDp >= recArea)
+    return null
+  
+  // get length of vectors
+  var lenLineE1 = Math.sqrt(e1[0] * e1[0] + e1[1] * e1[1]);
+  var lenLineE2 = Math.sqrt(e2[0] * e2[0] + e2[1] * e2[1]);
+  var cos = valDp / (lenLineE1 * lenLineE2);
+  // length of v1P'
+  var projLenOfLine = cos * lenLineE2;
+  var p = [(v1[0] + (projLenOfLine * e1[0]) / lenLineE1),
+           (v1[1] + (projLenOfLine * e1[1]) / lenLineE1)];
+  return p;
+}
+
+//var STEPS = 1200
+var STEPS = 1
+
+function continuePath(coords)
+{
+    var circ = []
+    for(var iter = 0; iter < STEPS; ++iter) 
+    {
+        var cur = coords[coords.length-1]
+        var clsD = 9999999
+        var clsP = null
+        var clsAi = -1
+        var clsCoordI = -1
+ 
+        var vprev = vSub(cur, coords[coords.length-2])
+        vNormalize(vprev)
+ 
+        for(var ai = 0; ai < anglesCount; ++ai) 
+        {
+            var vd = [sinTable[ai], cosTable[ai]]
+            var checkDir = vDot(vprev, vd)
+            if (checkDir < -0.8)
+                continue
+            vMult(vd, GAP)
+            var p = vAdd(cur, vd)
+            
+            circ.push(p)
+            // find nearest point to p
+            var mind = 99999999999
+            var minv = null
+            var mini = -1
+            for(var i = 1; i < coords.length-10; ++i) // don't consider the one we are at
+            {
+                var d = vDistSqr(p, coords[i])
+                if (d < mind) {
+                    mind = d
+                    minv = coords[i]
+                    mini = i
+                }
+            }
+            // find nearest projection on a line to p
+            for(var i = 0; i < coords.length-10; ++i) 
+            {
+                var pp = getProjectedPointOnLine(p, coords[i], coords[i+1])                
+                if (pp != null) {
+                    var d = vDistSqr(p, pp)
+                    if (d < mind) {
+                        mind = d
+                        minv = coords[i]
+                        mini = 1000000+i
+                    }
+                }
+            }
+            
+
+            var np = minv
+            var nd = Math.sqrt(mind)
+            var ndg = Math.abs(nd - GAP)
+
+            //console.log("" + ai + " Nearest " + mini + " " + nd )
+            
+            // if this nearest nei is closer to the gap we want
+            if (ndg < clsD) {
+                clsD = ndg
+                clsP = p
+                clsAi = ai
+                clsCoordI = mini
+            }
+        }
+        //console.log("----- " + iter + " SELECTED a=" + clsAi + " which is " + clsCoordI + " dg=" + clsD + "  check=" + checkDir)
+        coords.push(clsP)
+    }
+    return circ
+}
+
+
+function process(pathElem)
+{
+    coords = readPath(pathElem) // [x,y]
+    normals = calcNormals(coords) // returns [nx,ny]
+    //draw(coords)
+    //drawNormals(coords, normals)
+    openEnd(coords, normals)
+    calcTables()
+    circ = continuePath(coords)
+   // draw(circ)
+    
+    ctx.fillStyle = "red"
+    drawPoints(coords,1)
+  //  ctx.fillStyle = "#00FF00"
+  //  drawPoints([coords[103]],2)
+
+    draw(coords)
+}
+
+
+</script>
+<style>
+#canvas {
+    border: 1px solid;
+}
+
+</style>
+</head>
+<body onload="start()">
+<canvas id="canvas" width="1200" height="700"></canvas>
+
+
+<svg
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 744.09448819 1052.3622047"
+   version="1.1"
+
+  <g
+     id="layer1">
+    <path
+       id="the_path"
+       d="m 657.14287,732.36219 -42.93428,44.16165 -15.94699,13.17146 -13.209,8.13118 -11.17757,3.76538 -9.85272,0.0741 -9.23445,-2.94276 -9.32274,-5.28511 -21.73668,-14.89936 -30.56875,-16.17499 -20.36284,-6.87967 -24.69058,-5.17513 -29.72489,-2.79612 -35.46578,0.25737 -35.30063,3.42838 -29.27359,5.86896 -24.01937,7.71211 -19.53797,8.95783 -28.72301,19.26311 -20.07125,17.07685 -8.72326,6.22501 -8.87877,3.88615 -9.8071,0.94988 -11.50826,-2.58384 -13.98224,-6.71497 -17.22902,-11.44353 -47.2897,-39.46249 -44.161652,-42.93427 -13.171453,-15.947 -8.131179,-13.20899 -3.765386,-11.17757 -0.07407,-9.85273 2.942758,-9.23444 5.285111,-9.32274 14.899354,-21.73668 16.174996,-30.56875 6.879662,-20.36283 5.175132,-24.69058 2.79612,-29.72489 -0.257372,-35.46579 -3.428379,-35.30062 -5.868957,-29.27359 -7.712109,-24.01937 -8.95783,-19.53797 -19.263109,-28.72302 -17.076851,-20.07125 -6.225006,-8.72326 -3.886156,-8.87877 -0.949876,-9.8071 2.583833,-11.50826 6.71497,-13.98224 11.443535,-17.22902 39.462485,-47.2897 42.934273,-44.16165 15.947,-13.17146 13.20899,-8.13117 11.17757,-3.76539 9.85272,-0.0741 9.23445,2.94275 9.32274,5.28511 21.73668,14.89936 30.56875,16.17499 20.36283,6.87967 24.69058,5.17513 29.7249,2.79612 35.46578,-0.25738 35.30063,-3.42837 29.27358,-5.86896 24.01938,-7.71211 19.53797,-8.95783 28.72301,-19.26311 20.07125,-17.07685 8.72326,-6.225 8.87877,-3.88616 9.80711,-0.94987 11.50826,2.58383 13.98223,6.71497 17.22903,11.44354 47.2897,39.46248 44.16165,42.93427 13.17145,15.947 8.13118,13.20899 3.76538,11.17757 0.0741,9.85273 -2.94276,9.23444 -5.28511,9.32274 -14.89935,21.73668 -16.175,30.56875 -6.87966,20.36284 -5.17513,24.69058 -2.79612,29.72489 0.25737,35.46578 3.42838,35.30063 5.86895,29.27359 7.71211,24.01937 8.95783,19.53797 19.26311,28.72301 17.07685,20.07125 6.225,8.72326 3.88616,8.87877 0.94988,9.8071 -2.58384,11.50826 -6.71497,13.98224 -11.44353,17.22902 -39.46248,47.2897 0,0"
+       style="opacity:1;fill:none;fill-opacity:1;stroke:#ec0000;stroke-width:14.91600037;stroke-linecap:round;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:0.7254902"
+       inkscape:connector-curvature="0" />
+  </g>
+</svg>
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="343pt"
+   height="340pt"
+   id="svg3058"
+   version="1.1"
+   inkscape:version="0.91 r13725"
+   sodipodi:docname="test3.svg">
+  <defs
+     id="defs3060" />
+  <sodipodi:namedview
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="0.8"
+     inkscape:cx="2.5"
+     inkscape:cy="210"
+     inkscape:document-units="pt"
+     inkscape:current-layer="layer1"
+     id="namedview3062"
+     showgrid="false"
+     inkscape:window-width="1440"
+     inkscape:window-height="848"
+     inkscape:window-x="-8"
+     inkscape:window-y="-8"
+     inkscape:window-maximized="1" />
+  <metadata
+     id="metadata3064">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-opacity:1"
+       inkscape:connector-curvature="0"
+       d="m 19.315246,205 1.408432,-11.73537 4.064718,-11.20631 6.480132,-10.35802 8.654678,-9.19055 10.588353,-7.70385 12.28116,-5.89796 13.733096,-3.77287 14.944162,-1.32855 3.163196,0.0633 3.161945,0.18494 3.153192,0.2992 3.13695,0.40609 3.11319,0.50558 3.08194,0.59769 3.04319,0.68242 2.99694,0.75976 -5.44303,-6.12794 -5.01773,-6.51194 -4.49981,-6.88668 -3.889315,-7.25213 -3.18621,-7.6083 -2.39051,-7.9552 -1.502211,-8.292824 -0.521314,-8.621166 1.033674,-12.454104 2.996733,-11.481666 4.803358,-10.297139 6.453545,-8.900525 7.94731,-7.291821 9.28464,-5.471029 10.46552,-3.438149 11.48998,-1.19318 11.15376,1.077697 11.03342,3.171637 10.66386,5.173394 10.04511,7.08297 9.17714,8.900363 8.05997,10.625574 6.69359,12.258602 5.078,13.799449 5.078,-13.799449 6.69359,-12.258602 8.05997,-10.625574 9.17714,-8.900363 10.04511,-7.08297 10.66386,-5.173394 11.03342,-3.171637 11.15376,-1.077697 11.48998,1.19318 10.46552,3.438149 9.28464,5.471029 7.9473,7.291821 6.45355,8.900525 4.80336,10.297139 2.99674,11.481666 1.03367,12.454104 -0.52131,8.621166 -1.50222,8.292824 -2.3905,7.9552 -3.18621,7.6083 -3.88932,7.25213 -4.49981,6.88668 -5.01772,6.51194 -5.44303,6.12794 2.99694,-0.75976 3.04319,-0.68242 3.08194,-0.59769 3.11319,-0.50558 3.13694,-0.40609 3.1532,-0.2992 3.16195,-0.18494 3.1632,-0.0633 14.94416,1.32855 13.73309,3.77287 12.28115,5.89796 10.58835,7.70385 8.65468,9.19055 6.48013,10.35802 4.06472,11.20631 1.40843,11.73537 -1.40843,11.73537 -4.06472,11.20631 -6.48013,10.35802 -8.65468,9.19055 -10.58835,7.70385 -12.28115,5.89796 -13.73309,3.77287 -14.94416,1.32855 -3.1632,-0.0633 -3.16195,-0.18494 -3.1532,-0.2992 -3.13694,-0.40609 -3.11319,-0.50558 -3.08194,-0.59769 -3.04319,-0.68242 -2.99694,-0.75976 5.44303,6.12794 5.01772,6.51194 4.49981,6.88668 3.88932,7.25213 3.18621,7.6083 2.3905,7.9552 1.50222,8.29282 0.52131,8.62117 -1.03367,12.45411 -2.99674,11.48166 -4.80336,10.29714 -6.45355,8.90052 -7.9473,7.29182 -9.28464,5.47103 -10.46552,3.43815 -11.48998,1.19318 -11.15377,-1.0777 -11.03344,-3.17163 -10.66389,-5.1734 -10.04513,-7.08297 -9.17715,-8.90036 -8.05997,-10.62557 -6.69356,-12.2586 -5.07794,-13.79945 -5.078,13.79945 -6.69359,12.2586 -8.05997,10.62557 -9.17714,8.90036 -10.04511,7.08297 -10.66386,5.1734 -11.03342,3.17163 -11.15376,1.0777 -11.48998,-1.19318 -10.46552,-3.43815 -9.28464,-5.47103 -7.94731,-7.29182 -6.453545,-8.90052 -4.803358,-10.29714 -2.996733,-11.48166 -1.033674,-12.45411 0.521314,-8.62117 1.502211,-8.29282 2.39051,-7.9552 3.18621,-7.6083 3.889315,-7.25213 4.49981,-6.88668 5.01773,-6.51194 5.44303,-6.12794 -2.99694,0.75976 -3.04319,0.68242 -3.08194,0.59769 -3.11319,0.50558 -3.13695,0.40609 -3.153192,0.2992 -3.161945,0.18494 -3.163196,0.0633 -14.944162,-1.32855 -13.733096,-3.77287 -12.28116,-5.89796 -10.588353,-7.70385 -8.654678,-9.19055 -6.480132,-10.35802 -4.064718,-11.20631 z"
+       id="the_path2"
+       sodipodi:nodetypes="ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" />
+  </g>
+</svg>
+
+
+</body>
+</html>
