@@ -50,6 +50,9 @@ function vAddInto(a, b) {
 function vPrn(a) {
     console.log("["+a[0]+","+a[1]+"]")
 }
+function vStr(a) {
+     return "["+a[0]+","+a[1]+"]"
+}
 function vMult(a, v) {
     a[0] *= v
     a[1] *= v
@@ -161,210 +164,129 @@ function openEnd(coords, normals)
     }
 }
 
-function findNearest(v, coords)
+
+function renderLine(coords) 
 {
-    var mind = 99999999999
-    var minv = null
-    var mini = -1
-    for(var i = 0; i < coords.length-1; ++i) // don't consider the one we are at
-    {
-        var d = vDistSqr(v, coords[i])
-        if (d < mind) {
-            mind = d
-            minv = coords[i]
-            mini = i
-        }
+    ctx.strokeStyle = "#ff0000"
+    ctx.lineWidth = GAP*2
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'square'
+
+    ctx.beginPath()
+    ctx.moveTo(coords[0][0], coords[0][1])
+    for(var i = 1; i < coords.length; ++i) {
+        ctx.lineTo(coords[i][0], coords[i][1])
     }
-    console.log("Nearest " + i + " " + Math.sqrt(mind))
-    return minv
-}
-
-function mGet(m, x, y) {
-    return m.d[x+y*m.w]
-}
-function mSet(m, x, y, v) {
-    m.d[x+y*m.w] = v
-}
-
-var TWO_PI = 2*Math.PI
-
-var sinTable = []
-var cosTable = []
-var anglesCount = 0;
-
-function calcTables() {
-    for(var phi = 0; phi < TWO_PI; phi += 0.05) 
-    {
-        sinTable[anglesCount] = Math.sin(phi)
-        cosTable[anglesCount] = Math.cos(phi)
-        anglesCount++
-    }
-}
-
-// http://www.sunshine2k.de/coding/java/PointOnLine/PointOnLine.html
-function isProjectedPointOnLineSegment(p, v1, v2)
-{
-  // get dotproduct |e1| * |e2|
-  var e1 = [v2[0] - v1[0], v2[1] - v1[1]];
-  var recArea = vDot(e1, e1);
-  // dot product of |e1| * |e2|
-  var  e2 = [p[0] - v1[0], p[1] - v1[1]];
-  var val = vDot(e1, e2);
-  return (val > 0 && val < recArea);
-}
-function getProjectedPointOnLine(p, v1, v2)
-{
-  // get dot product of e1, e2
-  var e1 = [v2[0] - v1[0], v2[1] - v1[1]];
-  var e2 = [p[0] - v1[0], p[1]  - v1[1]];
-  var valDp = vDot(e1, e2);
-  var recArea = vDot(e1, e1);
-  if (valDp <= 0 || valDp >= recArea)
-    return null
-  
-  // get length of vectors
-  var lenLineE1 = Math.sqrt(e1[0] * e1[0] + e1[1] * e1[1]);
-  var lenLineE2 = Math.sqrt(e2[0] * e2[0] + e2[1] * e2[1]);
-  var cos = valDp / (lenLineE1 * lenLineE2);
-  // length of v1P'
-  var projLenOfLine = cos * lenLineE2;
-  var p = [(v1[0] + (projLenOfLine * e1[0]) / lenLineE1),
-           (v1[1] + (projLenOfLine * e1[1]) / lenLineE1)];
-  return p;
-}
-
-var STEP_DIST = 10 //10
-
-function addNext(cur, prev, lrangeA, lrangeB, checkDirRange, coords, lastMinCoord)
-{
-    var clsD = 9999999
-    var clsP = null
-    var clsAi = -1
-    var clsCoordI = -1
-       
-    // for direction verification
-    var vprev = vSub(cur, prev)
-    vNormalize(vprev)
+    ctx.stroke()
+ 
+    ctx.strokeStyle = "#000000"
+    ctx.lineWidth = 1
     
-    for(var ai = 0; ai < anglesCount; ++ai) 
+    var idt8 = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    var idt = new Uint32Array(idt8.buffer)
+    return {d:idt, w:canvas.width, h:canvas.height}
+}
+
+
+// 2 1 0
+// 4   3
+// 7 6 5 
+
+var cell2Move = [ [1, -1], [0, -1], [-1, -1], [1, 0], [-1, 0], [1, 1], [0, 1], [-1, 1], [0, 0]] // 0,0 is not really supported anywhere else
+
+var opposite = [ 7, 6, 5, 4, 3, 2, 1, 0 ];
+
+var considerOrderNorm = [
+	[ 1, 2, 4, 7, 6, 5, 3, 0 ],
+	[ 2, 4, 7, 6, 5, 3, 0, 1 ],
+	[ 4, 7, 6, 5, 3, 0, 1, 2 ],
+	[ 0, 1, 2, 4, 7, 6, 5, 3 ],
+	[ 7, 6, 5, 3, 0, 1, 2, 4 ],
+	[ 3, 0, 1, 2, 4, 7, 6, 5 ],
+	[ 5, 3, 0, 1, 2, 4, 7, 6 ],
+	[ 6, 5, 3, 0, 1, 2, 4, 7 ] ];
+
+function getPathCenter(coords) {
+    var c = [0,0]
+    for(var i = 0; i < coords.length; ++i) {
+        vAddInto(c, coords[i])
+    }
+    vMult(c, 1.0/coords.length)
+    return [Math.round(c[0]), Math.round(c[1])]
+}    
+
+function pMove(p, mi) {
+    console.assert(mi >= 0 && mi < 8)
+    var m = cell2Move[mi]
+    vAddInto(p, m)
+}
+function iGet(imgdt, p) {
+    return imgdt.d[p[0] + p[1]*imgdt.w]
+}
+function iMoveGet(imgdt, p, mi) {
+    console.assert(mi >= 0 && mi < 8)
+    var m = cell2Move[mi]
+    return imgdt.d[p[0]+m[0] + (p[1]+m[1])*imgdt.w]
+}
+function iPut(imgdt, p, v) {
+    imgdt.d[p[0] + p[1]*imgdt.w] = v
+}
+function pMoveEq(p, mi, t) {
+    var m = cell2Move[mi]
+    return (p[0]+m[0]==t[0] && p[1]+m[1]==t[1])
+}
+
+function trace(img, start)
+{
+    var p = start.slice()
+    // go right
+    while(true) {
+        var n = p.slice()
+        pMove(n, 3)
+        var v = iGet(img, n)
+        if (v != 0)
+            break;
+        p = n    
+    }
+    
+    var trStart = p.slice()
+    var cameFrom = 3
+    pnts = []
+    var iter = 0
+    var reachedStart = false
+    while(true) 
     {
-        var vd = [sinTable[ai], cosTable[ai]]
-        var checkDir = vDot(vprev, vd)
-        if (checkDir < checkDirRange)
-            continue
-        vMult(vd, STEP_DIST)
-        var p = vAdd(cur, vd)
+        console.log("" + iter + " " + vStr(p))
+        if (++iter == 1400)
+            break
+        pnts.push(p.slice())
+        iPut(img, p, 0xff0000ff)
         
-        //circ.push(p)
-        // find nearest point to p
-        var mind = 99999999999
-        var minv = null
-        var mini = -1
-        for(var i = lrangeA; i < lrangeB; ++i) // don't consider the one we are at
-        {
-            var d = vDistSqr(p, coords[i])
-            if (d < mind) {
-                mind = d
-                minv = coords[i]
-                mini = i
+        var order = considerOrderNorm[cameFrom]
+        var foundmi = -1
+        for(oi = 0; oi < 8; ++oi) {
+            var mi = order[oi];
+            var v = iMoveGet(img, p, mi)
+            if (v == 0) {
+                foundmi = mi
+                break;
             }
-        }
-        // find nearest projection on a line to p
-        for(var i = lrangeA; i < lrangeB-1; ++i) 
-        {
-            var pp = getProjectedPointOnLine(p, coords[i], coords[i+1])                
-            if (pp != null) {
-                var d = vDistSqr(p, pp)
-                if (d < mind) {
-                    mind = d
-                    minv = coords[i]
-                    mini = i
-                }
+            if (pMoveEq(p, mi, trStart)) {
+                reachedStart = true
+                break;
             }
-        }
-        //if (lastMinCoord != null && mini < lastMinCoord -1)
-        //    continue // don't go back
+        }   
+        if (reachedStart)
+            break
+        console.assert(foundmi != -1) // did not find where to go
+        pMove(p, foundmi)
+        cameFrom = opposite[foundmi]
         
-        // how far is the nearest neighbor from this angle point
-        var np = minv
-        var nd = Math.sqrt(mind)
-        var ndg = Math.abs(nd - GAP)
-
-        //console.log("" + ai + " Nearest " + mini + " " + nd )
-        
-        // if this nearest nei is closer to the gap we want
-        if (ndg < clsD) {
-            clsD = ndg
-            clsP = p
-            clsAi = ai
-            clsCoordI = mini
-        }
     }
-    console.log("SELECTED a=" + clsAi + " which is " + clsCoordI + " dg=" + clsD)
-    
-    return [clsP, clsCoordI]
+    console.log("round " + iter)
+
+    return pnts
 }
-
-var STEPS = 20
-//var STEPS = 4200
-
-
-function continuePath(coords)
-{
-    var checkDirRange = 0 // first time be more strict to go forward
-
-    // go outside
-    for(var iter = 0; iter < STEPS; ++iter) 
-    {
-        var cur = coords[coords.length-1]
-        var prev = coords[coords.length-2]
-     
-        // first look for the general range of to look into for neighbors before going on the angles run
-        var fmind = 99999999999
-        var fmini = -1
-        // 0, coords.length-10
-        for(var i = 0; i < coords.length-10; ++i) // don't consider the one we are at
-        {
-            var d = vDistSqr(cur, coords[i])
-            if (d < fmind) {
-                fmind = d
-                fmini = i
-            }
-        }
-        var lrangeA = Math.max(fmini - 100, 0)
-        var lrangeB = Math.min(fmini + 100, coords.length-10)
-
-     
-        // don't consider the last 10 items we added
-        var r = addNext(cur, prev, lrangeA, lrangeB, checkDirRange, coords, null)
-        p = r[0]
-        checkDirRange = -0.8
-        
-        coords.push(p)
-    }
-    
-    // go inside
-    var lrangeA = 50
-    var lrangeB = coords.length
-    var lastMinCoord = NaN
-    
-    for(var iter = 0; iter < 164; ++iter)
-    {
-        var cur = coords[0]
-        var prev = coords[1]
-        
-        
-        
-        var r = addNext(cur, prev, lrangeA, lrangeB, -0.8, coords, lastMinCoord)
-        var p = r[0]
-        lastMinCoord = r[1]
-        
-        coords.splice(0,0, p)
-        // keep the range in place after the insertion
-
-    }
-    
- }
 
 
 function process(pathElem)
@@ -375,15 +297,18 @@ function process(pathElem)
     //draw(coords)
     //drawNormals(coords, normals)
     openEnd(coords, normals)
-    calcTables()
-    var stp = coords[0].slice()
-    circ = continuePath(coords)
-  //  draw(circ)
+
+    //var stp = coords[0].slice()
+    idt = renderLine(coords)
     
-    ctx.fillStyle = "red"
-    drawPoints(coords,1)
+    var c = getPathCenter(coords)
+    var trp = trace(idt, c)
+    
+    ctx.fillStyle = "#6600ff"
+    //drawPoints(coords,1)
+    drawPoints(trp,1)
     ctx.fillStyle = "#00FF00"
-    drawPoints([stp],2)
+    //drawPoints([stp],2)
 
     draw(coords)
 }
