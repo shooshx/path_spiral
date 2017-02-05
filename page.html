@@ -235,32 +235,16 @@ function getProjectedPointOnLine(p, v1, v2)
 
 var STEP_DIST = 10 //10
 
-function addNext(cur, prev, srStart, srEnd, checkDirRange, coords)
+function addNext(cur, prev, lrangeA, lrangeB, checkDirRange, coords, lastMinCoord)
 {
     var clsD = 9999999
     var clsP = null
     var clsAi = -1
     var clsCoordI = -1
-     
-    // first look for the general range of to look into for neighbors before going on the angles run
-    var fmind = 99999999999
-    var fmini = -1
-    // 0, coords.length-10
-    for(var i = srStart; i < srEnd; ++i) // don't consider the one we are at
-    {
-        var d = vDistSqr(cur, coords[i])
-        if (d < fmind) {
-            fmind = d
-            fmini = i
-        }
-    }
-    var lrangeA = Math.max(fmini - 100, srStart)
-    var lrangeB = Math.min(fmini + 100, srEnd)
-
+       
     // for direction verification
     var vprev = vSub(cur, prev)
     vNormalize(vprev)
-    
     
     for(var ai = 0; ai < anglesCount; ++ai) 
     {
@@ -294,10 +278,12 @@ function addNext(cur, prev, srStart, srEnd, checkDirRange, coords)
                 if (d < mind) {
                     mind = d
                     minv = coords[i]
-                    mini = 1000000+i
+                    mini = i
                 }
             }
         }
+        //if (lastMinCoord != null && mini < lastMinCoord -1)
+        //    continue // don't go back
         
         // how far is the nearest neighbor from this angle point
         var np = minv
@@ -316,7 +302,7 @@ function addNext(cur, prev, srStart, srEnd, checkDirRange, coords)
     }
     console.log("SELECTED a=" + clsAi + " which is " + clsCoordI + " dg=" + clsD)
     
-    return clsP
+    return [clsP, clsCoordI]
 }
 
 var STEPS = 20
@@ -332,23 +318,50 @@ function continuePath(coords)
     {
         var cur = coords[coords.length-1]
         var prev = coords[coords.length-2]
-        
+     
+        // first look for the general range of to look into for neighbors before going on the angles run
+        var fmind = 99999999999
+        var fmini = -1
+        // 0, coords.length-10
+        for(var i = 0; i < coords.length-10; ++i) // don't consider the one we are at
+        {
+            var d = vDistSqr(cur, coords[i])
+            if (d < fmind) {
+                fmind = d
+                fmini = i
+            }
+        }
+        var lrangeA = Math.max(fmini - 100, 0)
+        var lrangeB = Math.min(fmini + 100, coords.length-10)
+
+     
         // don't consider the last 10 items we added
-        var p = addNext(cur, prev, 0, coords.length-10, checkDirRange, coords)
+        var r = addNext(cur, prev, lrangeA, lrangeB, checkDirRange, coords, null)
+        p = r[0]
         checkDirRange = -0.8
         
         coords.push(p)
     }
     
     // go inside
-    for(var iter = 0; iter < 20; ++iter)
+    var lrangeA = 50
+    var lrangeB = coords.length
+    var lastMinCoord = NaN
+    
+    for(var iter = 0; iter < 164; ++iter)
     {
         var cur = coords[0]
         var prev = coords[1]
         
-        var p = addNext(cur, prev, 10, coords.length, -0.8, coords)
+        
+        
+        var r = addNext(cur, prev, lrangeA, lrangeB, -0.8, coords, lastMinCoord)
+        var p = r[0]
+        lastMinCoord = r[1]
         
         coords.splice(0,0, p)
+        // keep the range in place after the insertion
+
     }
     
  }
