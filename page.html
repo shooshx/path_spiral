@@ -57,6 +57,9 @@ function vMult(a, v) {
     a[0] *= v
     a[1] *= v
 }
+function vMulted(a, v) {
+    return [a[0]*v, a[1]*v]
+}
 function vSub(a, b) {
     return [a[0]-b[0], a[1]-b[1]]
 }
@@ -84,6 +87,9 @@ function vDist(a, b) {
 }
 function vDot(a, b) {
     return a[0]*b[0] + a[1]*b[1]
+}
+function vNeg(a) {
+    return [-a[0], -a[1]]
 }
 
 function readPath(pathElem) 
@@ -170,7 +176,7 @@ function renderLine(coords)
     ctx.strokeStyle = "#ff0000"
     ctx.lineWidth = GAP*2
     ctx.lineJoin = 'round'
-    ctx.lineCap = 'square'
+    ctx.lineCap = 'butt' //'square'
 
     ctx.beginPath()
     ctx.moveTo(coords[0][0], coords[0][1])
@@ -236,10 +242,9 @@ function pMoveEq(p, mi, t) {
     return (p[0]+m[0]==t[0] && p[1]+m[1]==t[1])
 }
 
-function trace(img, start)
+function goToRightEdge(start, img)
 {
     var p = start.slice()
-    // go right
     while(true) {
         var n = p.slice()
         pMove(n, 3)
@@ -248,16 +253,21 @@ function trace(img, start)
             break;
         p = n    
     }
+    return p
+} 
+
+function trace(trStart, img, cameFrom)
+{
+
+    var p = trStart.slice()
     
-    var trStart = p.slice()
-    var cameFrom = 3
     pnts = []
     var iter = 0
     var reachedStart = false
     while(true) 
     {
-        console.log("" + iter + " " + vStr(p))
-        if (++iter == 1400)
+        //console.log("PP " + iter + " " + vStr(p))
+        if (++iter == 10000)
             break
         pnts.push(p.slice())
         iPut(img, p, 0xff0000ff)
@@ -288,25 +298,63 @@ function trace(img, start)
     return pnts
 }
 
+function findNearest(p, pnts)
+{
+    var mindSq = 99999999
+    var minp = null
+    var mini
+    for(var i = 0; i < pnts.length; ++i) {
+        var d = vDistSqr(p, pnts[i])
+        if (d < mindSq) {
+            mindSq = d
+            minp = pnts[i]
+            mini = i
+        }
+    }
+    return minp
+}
+
+function findEdge(from, dir)
+{
+    var p = from.slice()
+    while(true) {
+        var n = p.slice()
+        vAddInto(n, [0.5*dir[0],0.5*dir[1]]) // go slow to not miss integers
+        var r = [Math.round(n[0]), Math.round(n[1])]
+        var v = iGet(img, r)
+        if (v == 0)
+            return r; // want the one that is just outside
+        p = n    
+    }
+    return null
+}
 
 function process(pathElem)
 {
     coords = readPath(pathElem) // [x,y]
-    //normals = calcNormals(coords) // returns [nx,ny]
-    normals = calcNormalsConcentric(coords)
+    realNormals = calcNormals(coords) // returns [nx,ny]
+    conNormals = calcNormalsConcentric(coords)
     //draw(coords)
-    //drawNormals(coords, normals)
-    openEnd(coords, normals)
+    //drawNormals(coords, realNormals)
+    openEnd(coords, conNormals)
 
     //var stp = coords[0].slice()
-    idt = renderLine(coords)
+    img = renderLine(coords)
     
-    var c = getPathCenter(coords)
-    var trp = trace(idt, c)
+    //var c = getPathCenter(coords)
+    //var pe = goToRightEdge(c, img)
+    //var firstRoundTr = trace(pe, img, 3) // 3: came from left
+    
+    // the point inside, where the inward spiral should start from
+    //var stp = coords[coords.length-1].slice();
+    //vAddInto(stp, vMulted(realNormals[coords.length-1], -GAP))
+    var stp = findEdge(coords[coords.length-1], vNeg(realNormals[coords.length-1]))
+    var trp = trace(stp, img, 1) // came from above
     
     ctx.fillStyle = "#6600ff"
     //drawPoints(coords,1)
     drawPoints(trp,1)
+    //drawPoints([stp],1)
     ctx.fillStyle = "#00FF00"
     //drawPoints([stp],2)
 
