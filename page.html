@@ -309,7 +309,7 @@ function trace(trStart, img, cameFrom, coords)
             var pc = p.slice()
             coords.splice(0,0,pc)
             // the order we send the color is 0xRRGGBB
-            img = renderLine(coords, upto)
+            img = renderLine(coords, upto, p)
             lastCoord = pc
         }
         ++curPntCount;
@@ -356,8 +356,8 @@ function trace(trStart, img, cameFrom, coords)
             if (upto == 5)
                 break
             didSeeBlue = false
+            img = renderLine(coords, upto)
         }
-        img = renderLine(coords, upto)
 
         pMove(p, foundmi)
         cameFrom = opposite[foundmi]
