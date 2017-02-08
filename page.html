@@ -3,17 +3,16 @@
 
 var ctx = null
 
-//var READ_FACTOR = 0.5
-
-var READ_FACTOR = 1
+var READ_FACTOR = 0.5
+//var READ_FACTOR = 1
 
 
 function start()
 {
     ctx = canvas.getContext('2d')
 
-    //var ELEM = the_path
-    var ELEM = the_path2
+    var ELEM = the_path
+    //var ELEM = the_path2
    
     process(ELEM)
 }
@@ -27,7 +26,7 @@ function draw(dpath) {
     ctx.stroke()
 }
 function drawNormals(coords, normals) {
-    for(var i = 1; i < coords.length; ++i) {
+    for(var i = 0; i < coords.length; ++i) {
         ctx.beginPath()
         ctx.moveTo(coords[i][0], coords[i][1])
     
@@ -123,17 +122,25 @@ function calcNormals(coords)
     var normals = []
     for(var i = 0; i < coords.length; ++i) {
         var prev = coords[(i-1+coords.length) % coords.length] // cyclic
+        if (i == 0)
+            prev = coords[(i-2+coords.length) % coords.length] // first point is repeated as last point so need to skip it
         var cur = coords[i];
         var next = coords[(i+1) % coords.length]
+        if (i == coords.length - 1)
+            next = coords[1]
         
         var dirFromPrev = vSub(cur, prev)
-        var dirFromNext = vSub(next, cur)
+        var dirFromNext = vSub(cur, next)
+
         var p1 = vPerp(dirFromPrev)
-        var p2 = vPerp(dirFromNext)
+        var p2 = vNeg(vPerp(dirFromNext))
+                
         vNormalize(p1)
         vNormalize(p2)
+
         vAddInto(p1, p2)
         vNormalize(p1)
+
         normals.push(p1)
     }
     return normals
@@ -257,6 +264,10 @@ function pMoveEq(p, mi, t) {
     var m = cell2Move[mi]
     return (p[0]+m[0]==t[0] && p[1]+m[1]==t[1])
 }
+function bEq(a, b) {
+    // this is a workaround due to signes of numbers. make them both signed (assumes a is already a result of bitwise op)
+    return (a == (b | 0))
+}
 
 function goToRightEdge(start, img)
 {
@@ -290,7 +301,7 @@ function trace(trStart, img, cameFrom, coords)
     {
         ++iter
         //console.log("PP " + iter + " " + vStr(p))
-        if (iter == 5000 ) //3211)
+        if (iter == 4000 ) //3211)
             break
 
         if ((curPntCount % 10) == 0) 
@@ -311,8 +322,8 @@ function trace(trStart, img, cameFrom, coords)
             var v = iMoveGet(img, p, mi) // the order we get the color is 0xAABBGGRR 
             if ((v & 0x00ff0000) == 0x00ff0000)
                 didSeeBlue = true
-            v &= 0x0000ffff // mask the oc
-            if (v != 0x000000ff && v != 0x0000ffff) {
+            v &= 0xff00ffff // mask the oc
+            if (!bEq(v, 0xff0000ff) && !bEq(v, 0xff00ffff)) {
                 foundmi = mi
                 break;
             }
@@ -335,7 +346,9 @@ function trace(trStart, img, cameFrom, coords)
                 }
             }        
         }
-        console.assert(foundmi != -1) // did not find where to go
+        if (foundmi == -1)
+            break
+        //console.assert(foundmi != -1) // did not find where to go
 
         if (didSeeBlue) {
             upto = Math.max(1, upto-1)
@@ -354,7 +367,7 @@ function trace(trStart, img, cameFrom, coords)
 
 }
 
-
+// from inside the red
 function findEdge(from, dir)
 {
     var p = from.slice()
@@ -363,7 +376,9 @@ function findEdge(from, dir)
         vAddInto(n, [0.5*dir[0],0.5*dir[1]]) // go slow to not miss integers
         var r = [Math.round(n[0]), Math.round(n[1])]
         var v = iGet(img, r)
-        if (v == 0)
+        //console.log("FE " + r + " " + v.toString(16))
+        v &= 0xff00ffff
+        if (!bEq(v, 0xff0000ff))
             return r; // want the one that is just outside
         p = n    
     }
@@ -377,19 +392,27 @@ function process(pathElem)
     conNormals = calcNormalsConcentric(coords)
     //draw(coords)
     //drawNormals(coords, realNormals)
-    openEnd(coords, conNormals)
+    //openEnd(coords, conNormals)
+
+    openEnd(coords, realNormals)
 
     //var stp = coords[0].slice()
     img = renderLine(coords,0)
     
     // the point inside, where the inward spiral should start from
-    var stp = findEdge(coords[coords.length-1], vNeg(realNormals[coords.length-1]))
-    trace(stp, img, 1, coords) // came from above
+    var edgeDir = vNeg(realNormals[coords.length-1])
+    var pdir = vSub(coords[coords.length-2], coords[coords.length-1])
+    vNormalize(pdir)
+    vMult(pdir, 4)
+    vAddInto(pdir, coords[coords.length-1])
+
+    var stp = findEdge(pdir, edgeDir)
+    trace(stp, img, 7, coords) // came from above 1
     
     ctx.fillStyle = "#6600ff"
     //drawPoints(coords,1)
     //drawPoints(trp,1)
-    //drawPoints([stp],1)
+    //drawPoints([stp, pdir],2)
     ctx.fillStyle = "#00FF00"
     //drawPoints([stp],2)
 
