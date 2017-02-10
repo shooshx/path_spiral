@@ -368,7 +368,7 @@ function trace(trStart, img, cameFrom, coords)
 }
 
 // from inside the red
-function findEdge(from, dir)
+function findEdge(img, from, dir)
 {
     var p = from.slice()
     while(true) {
@@ -385,6 +385,16 @@ function findEdge(from, dir)
     return null
 }
 
+function findStartCameFrom(img, stp)
+{
+    for(var i = 0; i < 8; ++i) {
+        var v = iMoveGet(img, stp, i)
+        v &= 0xff00ffff
+        if (bEq(v, 0xff0000ff))
+            return i; // want something that is inside
+    }
+}
+
 function process(pathElem)
 {
     coords = readPath(pathElem) // [x,y]
@@ -397,7 +407,7 @@ function process(pathElem)
     openEnd(coords, realNormals)
 
     //var stp = coords[0].slice()
-    img = renderLine(coords,0)
+    var img = renderLine(coords,0)
     
     // the point inside, where the inward spiral should start from
     var edgeDir = vNeg(realNormals[coords.length-1])
@@ -406,7 +416,9 @@ function process(pathElem)
     vMult(pdir, 4)
     vAddInto(pdir, coords[coords.length-1])
 
-    var stp = findEdge(pdir, edgeDir)
+    var stp = findEdge(img, pdir, edgeDir)
+    var cameFrom = findStartCameFrom(img, stp)
+    console.log("start " + stp + " " + cameFrom)
     trace(stp, img, 7, coords) // came from above 1
     
     ctx.fillStyle = "#6600ff"
