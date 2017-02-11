@@ -6,6 +6,11 @@ var ctx = null
 var READ_FACTOR = 0.5
 //var READ_FACTOR = 1
 
+var STEP_SIZE = 5 //10
+var GAP = 20
+
+// controls how deep interlly to try to reach
+var BEG_DIST = 5
 
 function start()
 {
@@ -163,7 +168,6 @@ function calcNormalsConcentric(coords)
     return normals
 }
 
-var GAP = 20
 
 function openEnd(coords, normals)
 {
@@ -184,36 +188,66 @@ function leftPad(s, len, ch) {
 }
 
 // upto allows to not render the last one which will interfere with the trace
-function renderLine(coords, upto, upfrom) 
+function renderLine(coords, upto, upfrom, p, emark) 
 {
+    //ctx.fillRect(0,0,canvas.width, canvas.height)
     ctx.lineWidth = GAP*2
     ctx.lineJoin = 'round'
     ctx.lineCap = 'butt' //'square'
-    
+
+    var c1 = 0, c2 = 0, c3 = 0
     ctx.strokeStyle = "#ff0000"
     ctx.beginPath()
     ctx.moveTo(coords[upto][0], coords[upto][1])
     for(var i = 1+upto; i < coords.length-upfrom; ++i) {
         ctx.lineTo(coords[i][0], coords[i][1])
+        ++c1;
     }
     ctx.stroke()
 
-    // start of the line add blue to detect we're reaching the center of the shape
-    ctx.strokeStyle = "#ff00ff"
-    ctx.beginPath()
-    ctx.moveTo(coords[upto][0], coords[upto][1])
-    for(var i = 1+upto; i < 5+upto; ++i) {
-        ctx.lineTo(coords[i][0], coords[i][1])
+    if (emark == null) // for inner tube
+    {  
+        // start of the line add blue to detect we're reaching the center of the shape
+        ctx.strokeStyle = "#ff00ff"
+        ctx.beginPath()
+        ctx.moveTo(coords[upto][0], coords[upto][1])
+        for(var i = 1+upto; i < BEG_DIST+upto; ++i) {
+            ctx.lineTo(coords[i][0], coords[i][1])
+            ++c2
+        }
+        ctx.stroke()
     }
-    ctx.stroke()
-
+    else { // for outer tube
+        ctx.strokeStyle = "#ff00aa"
+        ctx.beginPath()
+        ctx.moveTo(coords[emark-5-2][0], coords[emark-5-2][1])
+        for(var i = emark-5-1; i < emark; ++i) {
+            ctx.lineTo(coords[i][0], coords[i][1])
+            ++c3
+        }
+        ctx.stroke()
+    }
+    //console.log("COUNTS " + c1 + " " + c2 + " " + c3)
     
     ctx.strokeStyle = "#000000"
     ctx.lineWidth = 1
     
-    var idt8 = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    var winX, winY, winH, winW
+    if (p == null) {
+        winX = winY = 0
+        winW = canvas.width
+        winH = canvas.height
+    }
+    else {
+        winX = p[0] - STEP_SIZE - 5
+        winY = p[1] - STEP_SIZE - 5
+        winH = winW = STEP_SIZE*2+10        
+    }
+    
+    var idt8 = ctx.getImageData(winX, winY, winW, winH).data;
     var idt = new Uint32Array(idt8.buffer)
-    return {d:idt, w:canvas.width, h:canvas.height}
+    return {d:idt, w:canvas.width, h:canvas.height, winX:winX, winY:winY, winH:winH, winW:winW}
+
 }
 
 
@@ -249,16 +283,23 @@ function pMove(p, mi) {
     var m = cell2Move[mi]
     vAddInto(p, m)
 }
-function iGet(imgdt, p) {
-    return imgdt.d[p[0] + p[1]*imgdt.w]
+function iRealCoord(img, p) {
+    var r = [p[0]-img.winX, p[1]-img.winY]
+    console.assert(r[0] >= 0 && r[0] < img.winW && r[1] >= 0 && r[1] < img.winH)
+    return r
+}
+function iGet(imgdt, ap) {
+    var p = iRealCoord(imgdt, ap)
+    return imgdt.d[p[0] + p[1]*imgdt.winW]
 }
 function iMoveGet(imgdt, p, mi) {
     console.assert(mi >= 0 && mi < 8)
     var m = cell2Move[mi]
-    return imgdt.d[p[0]+m[0] + (p[1]+m[1])*imgdt.w]
+    return iGet(imgdt, [p[0]+m[0], p[1]+m[1]])
 }
-function iPut(imgdt, p, v) {
-    imgdt.d[p[0] + p[1]*imgdt.w] = v
+function iPut(imgdt, ap, v) {
+    var p = iRealCoord(imgdt, ap)
+    imgdt.d[p[0] + p[1]*imgdt.winW] = v
 }
 function pMoveEq(p, mi, t) {
     var m = cell2Move[mi]
@@ -283,6 +324,7 @@ function goToRightEdge(start, img)
     return p
 } 
 
+
 // ||
 // atBeg - true if we're doing the internal, false if the external
 function trace(trStart, img, cameFrom, coords, atBeg)
@@ -298,23 +340,38 @@ function trace(trStart, img, cameFrom, coords, atBeg)
 
     var upto = atBeg ? 20 : 0 // how far back to leave the paint trail so it wont interfere with the trace
     var upfrom = atBeg ? 0 : 20
+    var emark = atBeg ? null : coords.length // when going outer, for saving stroke
+    var emarkDirty = false
+    var emarkSawAt = null
     var didSeeBlue = false // used to lower upto when reaching the center
     while(true) 
     {
         ++iter
         //console.log("PP " + iter + " " + vStr(p))
-        if (iter == 14000 ) //3211)
+        if (iter == 14000 )
             break
 
-        if ((curPntCount % 10) == 0) 
+        if ((curPntCount % STEP_SIZE) == 0) 
         { // want to add the first one
             var pc = p.slice()
             if (atBeg)
                 coords.splice(0,0,pc)
-            else
+            else {
+                upto = emark - 20
                 coords.push(pc)
+            }
             // the order we send the color is 0xRRGGBB
-            img = renderLine(coords, upto, upfrom, p)
+            img = renderLine(coords, upto, upfrom, p, emark)
+            if (emarkDirty) {
+                while(true) { // move the emark forward until it's ahead of us so we won't miss it
+                    emark++;
+                    img = renderLine(coords, upto, upfrom, p, emark)
+                    var v = iGet(img, emarkSawAt)
+                    if ((v & 0x00ff0000) != 0x00aa0000)
+                        break;
+                }
+                emarkDirty = false
+            }
             lastCoord = pc
         }
         ++curPntCount;
@@ -327,6 +384,14 @@ function trace(trStart, img, cameFrom, coords, atBeg)
             var v = iMoveGet(img, p, mi) // the order we get the color is 0xAABBGGRR 
             if ((v & 0x00ff0000) == 0x00ff0000)
                 didSeeBlue = true
+            if (!atBeg) {    
+                if ((v & 0x00ff0000) == 0x00aa0000 && !emarkDirty) {
+                    emarkDirty = true
+                    emarkSawAt = p.slice()
+                    pMove(emarkSawAt, mi)
+                    //console.log(iter + " EE " + emark)
+                }
+            }    
             v &= 0xff00ffff // mask the oc
             if (!bEq(v, 0xff0000ff) ) {
                 foundmi = mi
@@ -346,10 +411,12 @@ function trace(trStart, img, cameFrom, coords, atBeg)
         if (atBeg && didSeeBlue) {
             upto = Math.max(1, upto-1)
             console.log("SEE-BLUE " + iter + " lowering " + upto)
-            if (upto == 5)
+            if (upto == BEG_DIST) {
+                coords.splice(0,0,p.slice())
                 break
+            }
             didSeeBlue = false
-            img = renderLine(coords, upto)
+            img = renderLine(coords, upto, upfrom, p, emark)
         }
 
         pMove(p, foundmi)
@@ -400,7 +467,7 @@ function process(pathElem)
     openEnd(coords, realNormals)
 
     //var stp = coords[0].slice()
-    var img = renderLine(coords, 0, 0)
+    var img = renderLine(coords, 0, 0, null, coords.length)
     
     // the point inside, where the inward spiral should start from
     var edgeDir = vNeg(realNormals[coords.length-1])
@@ -432,7 +499,8 @@ function process(pathElem)
     //drawPoints([etp, opdir],2)
     ctx.fillStyle = "#00FF00"
     //drawPoints([stp],2)
-
+    ctx.fillStyle = '#ffffff'
+  //  ctx.fillRect(0,0,canvas.width,canvas.height)
     draw(coords)
 }
 
@@ -440,7 +508,7 @@ function process(pathElem)
 </script>
 <style>
 #canvas {
-    border: 1px solid;
+    border: 1px solid red;
 }
 
 </style>
