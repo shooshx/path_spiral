@@ -184,7 +184,7 @@ function leftPad(s, len, ch) {
 }
 
 // upto allows to not render the last one which will interfere with the trace
-function renderLine(coords, upto) 
+function renderLine(coords, upto, upfrom) 
 {
     ctx.lineWidth = GAP*2
     ctx.lineJoin = 'round'
@@ -193,7 +193,7 @@ function renderLine(coords, upto)
     ctx.strokeStyle = "#ff0000"
     ctx.beginPath()
     ctx.moveTo(coords[upto][0], coords[upto][1])
-    for(var i = 1+upto; i < coords.length; ++i) {
+    for(var i = 1+upto; i < coords.length-upfrom; ++i) {
         ctx.lineTo(coords[i][0], coords[i][1])
     }
     ctx.stroke()
@@ -284,10 +284,11 @@ function goToRightEdge(start, img)
 } 
 
 // ||
-function trace(trStart, img, cameFrom, coords)
+// atBeg - true if we're doing the internal, false if the external
+function trace(trStart, img, cameFrom, coords, atBeg)
 {
     var curPntCount = 0; // points added before making a line
-    var lastCoord = coords[0]
+    var lastCoord = atBeg ? coords[0] : coords[coords.length-1] 
     
     var p = trStart.slice()
     
@@ -295,21 +296,25 @@ function trace(trStart, img, cameFrom, coords)
     var reachedStart = false
     var oc = 0;
 
-    var upto = 20 // how far back to leave the paint trail so it wont interfere with the trace
+    var upto = atBeg ? 20 : 0 // how far back to leave the paint trail so it wont interfere with the trace
+    var upfrom = atBeg ? 0 : 20
     var didSeeBlue = false // used to lower upto when reaching the center
     while(true) 
     {
         ++iter
         //console.log("PP " + iter + " " + vStr(p))
-        if (iter == 4000 ) //3211)
+        if (iter == 14000 ) //3211)
             break
 
         if ((curPntCount % 10) == 0) 
         { // want to add the first one
             var pc = p.slice()
-            coords.splice(0,0,pc)
+            if (atBeg)
+                coords.splice(0,0,pc)
+            else
+                coords.push(pc)
             // the order we send the color is 0xRRGGBB
-            img = renderLine(coords, upto, p)
+            img = renderLine(coords, upto, upfrom, p)
             lastCoord = pc
         }
         ++curPntCount;
@@ -323,7 +328,7 @@ function trace(trStart, img, cameFrom, coords)
             if ((v & 0x00ff0000) == 0x00ff0000)
                 didSeeBlue = true
             v &= 0xff00ffff // mask the oc
-            if (!bEq(v, 0xff0000ff) && !bEq(v, 0xff00ffff)) {
+            if (!bEq(v, 0xff0000ff) ) {
                 foundmi = mi
                 break;
             }
@@ -334,23 +339,11 @@ function trace(trStart, img, cameFrom, coords)
         }   
         if (reachedStart) // one of the places we considered is the start pos
             break
-        if (foundmi == -1) // dead end, try to backtrace where we came from
-        {
-            console.log("NOT-FOUND backtracking")
-            for(oi = 0; oi < 8; ++oi) {
-                var mi = order[oi];
-                var v = iMoveGet(img, p, mi)
-                if (v == 0x0000ffff) {
-                    foundmi = mi
-                    break;
-                }
-            }        
-        }
         if (foundmi == -1)
             break
         //console.assert(foundmi != -1) // did not find where to go
 
-        if (didSeeBlue) {
+        if (atBeg && didSeeBlue) {
             upto = Math.max(1, upto-1)
             console.log("SEE-BLUE " + iter + " lowering " + upto)
             if (upto == 5)
@@ -407,7 +400,7 @@ function process(pathElem)
     openEnd(coords, realNormals)
 
     //var stp = coords[0].slice()
-    var img = renderLine(coords,0)
+    var img = renderLine(coords, 0, 0)
     
     // the point inside, where the inward spiral should start from
     var edgeDir = vNeg(realNormals[coords.length-1])
@@ -419,12 +412,24 @@ function process(pathElem)
     var stp = findEdge(img, pdir, edgeDir)
     var cameFrom = findStartCameFrom(img, stp)
     console.log("start " + stp + " " + cameFrom)
-    trace(stp, img, 7, coords) // came from above 1
+    
+    // the point at the outside where the outward spiral should start
+    var oedgeDir = realNormals[0]
+    var opdir = vSub(coords[1], coords[0]) // where to start from
+    vNormalize(opdir)
+    vMult(opdir, 4)
+    vAddInto(opdir, coords[0])
+    var etp = findEdge(img, opdir, oedgeDir)
+    var ocameFrom = findStartCameFrom(img, etp)
+    
+    trace(stp, img, cameFrom, coords, true) 
+   
+    trace(etp, img, ocameFrom, coords, false) 
     
     ctx.fillStyle = "#6600ff"
     //drawPoints(coords,1)
     //drawPoints(trp,1)
-    //drawPoints([stp, pdir],2)
+    //drawPoints([etp, opdir],2)
     ctx.fillStyle = "#00FF00"
     //drawPoints([stp],2)
 
