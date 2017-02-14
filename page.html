@@ -188,7 +188,7 @@ function leftPad(s, len, ch) {
 }
 
 // upto allows to not render the last one which will interfere with the trace
-function renderLine(coords, upto, upfrom, p, emark) 
+function renderLineInner(coords, upto, upfrom, p) 
 {
     //ctx.fillRect(0,0,canvas.width, canvas.height)
     ctx.lineWidth = GAP*2
@@ -205,28 +205,16 @@ function renderLine(coords, upto, upfrom, p, emark)
     }
     ctx.stroke()
 
-    if (emark == null) // for inner tube
-    {  
-        // start of the line add blue to detect we're reaching the center of the shape
-        ctx.strokeStyle = "#ff00ff"
-        ctx.beginPath()
-        ctx.moveTo(coords[upto][0], coords[upto][1])
-        for(var i = 1+upto; i < BEG_DIST+upto; ++i) {
-            ctx.lineTo(coords[i][0], coords[i][1])
-            ++c2
-        }
-        ctx.stroke()
+    // start of the line add blue to detect we're reaching the center of the shape
+    ctx.strokeStyle = "#ff00ff"
+    ctx.beginPath()
+    ctx.moveTo(coords[upto][0], coords[upto][1])
+    for(var i = 1+upto; i < BEG_DIST+upto; ++i) {
+        ctx.lineTo(coords[i][0], coords[i][1])
+        ++c2
     }
-    else { // for outer tube
-        ctx.strokeStyle = "#ff00aa"
-        ctx.beginPath()
-        ctx.moveTo(coords[emark-5-2][0], coords[emark-5-2][1])
-        for(var i = emark-5-1; i < emark; ++i) {
-            ctx.lineTo(coords[i][0], coords[i][1])
-            ++c3
-        }
-        ctx.stroke()
-    }
+    ctx.stroke()
+    
     //console.log("COUNTS " + c1 + " " + c2 + " " + c3)
     
     ctx.strokeStyle = "#000000"
@@ -249,6 +237,49 @@ function renderLine(coords, upto, upfrom, p, emark)
     return {d:idt, w:canvas.width, h:canvas.height, winX:winX, winY:winY, winH:winH, winW:winW}
 
 }
+
+function renderLineOuter(coords, upto, upfrom, p, emark) 
+{
+    //ctx.fillRect(0,0,canvas.width, canvas.height)
+    ctx.lineWidth = GAP*2
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'butt' //'square'
+
+    var c1 = 0, c2 = 0, c3 = 0
+    ctx.strokeStyle = "#ff0000"
+    ctx.beginPath()
+    ctx.moveTo(coords[upto][0], coords[upto][1])
+    for(var i = 1+upto; i < coords.length-upfrom; ++i) {
+        ctx.lineTo(coords[i][0], coords[i][1])
+        ++c1;
+    }
+    ctx.stroke()
+
+    ctx.strokeStyle = "#ff00aa"
+    ctx.beginPath()
+    ctx.moveTo(coords[emark-5-2][0], coords[emark-5-2][1])
+    for(var i = emark-5-1; i < emark; ++i) {
+        ctx.lineTo(coords[i][0], coords[i][1])
+        ++c3
+    }
+    ctx.stroke()
+
+    //console.log("COUNTS " + c1 + " " + c2 + " " + c3)
+    
+    ctx.strokeStyle = "#000000"
+    ctx.lineWidth = 1
+    
+    var winX, winY, winH, winW
+    winX = p[0] - STEP_SIZE - 5
+    winY = p[1] - STEP_SIZE - 5
+    winH = winW = STEP_SIZE*2+10        
+    
+    var idt8 = ctx.getImageData(winX, winY, winW, winH).data;
+    var idt = new Uint32Array(idt8.buffer)
+    return {d:idt, w:canvas.width, h:canvas.height, winX:winX, winY:winY, winH:winH, winW:winW}
+
+}
+
 
 
 // 2 1 0
@@ -327,10 +358,10 @@ function goToRightEdge(start, img)
 
 // ||
 // atBeg - true if we're doing the internal, false if the external
-function trace(trStart, img, cameFrom, coords, atBeg)
+function traceInner(trStart, img, cameFrom, coords)
 {
     var curPntCount = 0; // points added before making a line
-    var lastCoord = atBeg ? coords[0] : coords[coords.length-1] 
+    var lastCoord = coords[0] 
     
     var p = trStart.slice()
     
@@ -338,9 +369,83 @@ function trace(trStart, img, cameFrom, coords, atBeg)
     var reachedStart = false
     var oc = 0;
 
-    var upto = atBeg ? 20 : 0 // how far back to leave the paint trail so it wont interfere with the trace
-    var upfrom = atBeg ? 0 : 20
-    var emark = atBeg ? null : coords.length // when going outer, for saving stroke
+    var upto = 20 // how far back to leave the paint trail so it wont interfere with the trace
+    var upfrom = 0
+    var didSeeBlue = false // used to lower upto when reaching the center
+    while(true) 
+    {
+        ++iter
+        //console.log("PP " + iter + " " + vStr(p))
+        if (iter == 14000 )
+            break
+
+        if ((curPntCount % STEP_SIZE) == 0) 
+        { // want to add the first one
+            var pc = p.slice()
+            coords.splice(0,0,pc)
+            // the order we send the color is 0xRRGGBB
+            img = renderLineInner(coords, upto, upfrom, p)
+            lastCoord = pc
+        }
+        ++curPntCount;
+        iPut(img, p, 0x0000ffff)
+        
+        var order = considerOrderNorm[cameFrom]
+        var foundmi = -1
+        for(oi = 0; oi < 8; ++oi) {
+            var mi = order[oi];
+            var v = iMoveGet(img, p, mi) // the order we get the color is 0xAABBGGRR 
+            if ((v & 0x00ff0000) == 0x00ff0000)
+                didSeeBlue = true
+            v &= 0xff00ffff // mask the oc
+            if (!bEq(v, 0xff0000ff) ) {
+                foundmi = mi
+                break;
+            }
+            if (pMoveEq(p, mi, trStart)) {
+                reachedStart = true
+                break;
+            }
+        }   
+        if (reachedStart) // one of the places we considered is the start pos
+            break
+        if (foundmi == -1)
+            break
+        //console.assert(foundmi != -1) // did not find where to go
+
+        if (didSeeBlue) {
+            upto = Math.max(1, upto-1)
+            console.log("SEE-BLUE " + iter + " lowering " + upto)
+            if (upto == BEG_DIST) {
+                coords.splice(0,0,p.slice())
+                break
+            }
+            didSeeBlue = false
+            img = renderLineInner(coords, upto, upfrom, p)
+        }
+
+        pMove(p, foundmi)
+        cameFrom = opposite[foundmi]
+        
+    }
+    console.log("round " + iter)
+
+}
+
+function traceOuter(trStart, img, cameFrom, coords)
+{
+    var curPntCount = 0; // points added before making a line
+    var lastCoord = coords[coords.length-1] 
+    
+    var p = trStart.slice()
+    
+    var iter = 0
+    var reachedStart = false
+    var oc = 0;
+
+    var upto = 0 // how far back to leave the paint trail so it wont interfere with the trace
+    var upfrom = 20
+    var emark = coords.length // when going outer, for saving stroke
     var emarkDirty = false
     var emarkSawAt = null
     var didSeeBlue = false // used to lower upto when reaching the center
@@ -354,18 +459,16 @@ function trace(trStart, img, cameFrom, coords, atBeg)
         if ((curPntCount % STEP_SIZE) == 0) 
         { // want to add the first one
             var pc = p.slice()
-            if (atBeg)
-                coords.splice(0,0,pc)
-            else {
-                upto = emark - 20
-                coords.push(pc)
-            }
+
+            upto = emark - 20
+            coords.push(pc)
+
             // the order we send the color is 0xRRGGBB
-            img = renderLine(coords, upto, upfrom, p, emark)
+            img = renderLineOuter(coords, upto, upfrom, p, emark)
             if (emarkDirty) {
                 while(true) { // move the emark forward until it's ahead of us so we won't miss it
                     emark++;
-                    img = renderLine(coords, upto, upfrom, p, emark)
+                    img = renderLineOuter(coords, upto, upfrom, p, emark)
                     var v = iGet(img, emarkSawAt)
                     if ((v & 0x00ff0000) != 0x00aa0000)
                         break;
@@ -384,14 +487,13 @@ function trace(trStart, img, cameFrom, coords, atBeg)
             var v = iMoveGet(img, p, mi) // the order we get the color is 0xAABBGGRR 
             if ((v & 0x00ff0000) == 0x00ff0000)
                 didSeeBlue = true
-            if (!atBeg) {    
-                if ((v & 0x00ff0000) == 0x00aa0000 && !emarkDirty) {
-                    emarkDirty = true
-                    emarkSawAt = p.slice()
-                    pMove(emarkSawAt, mi)
-                    //console.log(iter + " EE " + emark)
-                }
-            }    
+            if ((v & 0x00ff0000) == 0x00aa0000 && !emarkDirty) {
+                emarkDirty = true
+                emarkSawAt = p.slice()
+                pMove(emarkSawAt, mi)
+                //console.log(iter + " EE " + emark)
+            }
+
             v &= 0xff00ffff // mask the oc
             if (!bEq(v, 0xff0000ff) ) {
                 foundmi = mi
@@ -408,16 +510,6 @@ function trace(trStart, img, cameFrom, coords, atBeg)
             break
         //console.assert(foundmi != -1) // did not find where to go
 
-        if (atBeg && didSeeBlue) {
-            upto = Math.max(1, upto-1)
-            console.log("SEE-BLUE " + iter + " lowering " + upto)
-            if (upto == BEG_DIST) {
-                coords.splice(0,0,p.slice())
-                break
-            }
-            didSeeBlue = false
-            img = renderLine(coords, upto, upfrom, p, emark)
-        }
 
         pMove(p, foundmi)
         cameFrom = opposite[foundmi]
@@ -426,6 +518,8 @@ function trace(trStart, img, cameFrom, coords, atBeg)
     console.log("round " + iter)
 
 }
+
+
 
 // from inside the red
 function findEdge(img, from, dir)
@@ -467,7 +561,7 @@ function process(pathElem)
     openEnd(coords, realNormals)
 
     //var stp = coords[0].slice()
-    var img = renderLine(coords, 0, 0, null, coords.length)
+    var img = renderLineInner(coords, 0, 0, null, coords.length)
     
     // the point inside, where the inward spiral should start from
     var edgeDir = vNeg(realNormals[coords.length-1])
@@ -489,9 +583,9 @@ function process(pathElem)
     var etp = findEdge(img, opdir, oedgeDir)
     var ocameFrom = findStartCameFrom(img, etp)
     
-    trace(stp, img, cameFrom, coords, true) 
+    traceInner(stp, img, cameFrom, coords) 
    
-    trace(etp, img, ocameFrom, coords, false) 
+    traceOuter(etp, img, ocameFrom, coords) 
     
     ctx.fillStyle = "#6600ff"
     //drawPoints(coords,1)
