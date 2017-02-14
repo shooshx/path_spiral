@@ -3,21 +3,23 @@
 
 var ctx = null
 
-var READ_FACTOR = 0.5
-//var READ_FACTOR = 1
+//var READ_FACTOR = 0.5
+var READ_FACTOR = 1
 
 var STEP_SIZE = 5 //10
 var GAP = 20
 
 // controls how deep interlly to try to reach
-var BEG_DIST = 5
+//var BEG_DIST = 5 // for 1
+var BEG_DIST = 7 // for 2
+var INNER_UPTO = 20 * (10/STEP_SIZE) // 40 for 5 step
 
 function start()
 {
     ctx = canvas.getContext('2d')
 
-    var ELEM = the_path
-    //var ELEM = the_path2
+    //var ELEM = the_path
+    var ELEM = the_path2
    
     process(ELEM)
 }
@@ -216,10 +218,7 @@ function renderLineInner(coords, upto, upfrom, p)
     ctx.stroke()
     
     //console.log("COUNTS " + c1 + " " + c2 + " " + c3)
-    
-    ctx.strokeStyle = "#000000"
-    ctx.lineWidth = 1
-    
+       
     var winX, winY, winH, winW
     if (p == null) {
         winX = winY = 0
@@ -238,7 +237,7 @@ function renderLineInner(coords, upto, upfrom, p)
 
 }
 
-function renderLineOuter(coords, upto, upfrom, p, emark) 
+function renderLineOuter(coords, upto, upfrom, p) 
 {
     //ctx.fillRect(0,0,canvas.width, canvas.height)
     ctx.lineWidth = GAP*2
@@ -257,8 +256,8 @@ function renderLineOuter(coords, upto, upfrom, p, emark)
 
     ctx.strokeStyle = "#ff00aa"
     ctx.beginPath()
-    ctx.moveTo(coords[emark-5-2][0], coords[emark-5-2][1])
-    for(var i = emark-5-1; i < emark; ++i) {
+    ctx.moveTo(coords[coords.length-upfrom-5-2][0], coords[coords.length-upfrom-5-2][1])
+    for(var i = coords.length-upfrom-5-1; i < coords.length-upfrom; ++i) {
         ctx.lineTo(coords[i][0], coords[i][1])
         ++c3
     }
@@ -266,13 +265,18 @@ function renderLineOuter(coords, upto, upfrom, p, emark)
 
     //console.log("COUNTS " + c1 + " " + c2 + " " + c3)
     
-    ctx.strokeStyle = "#000000"
-    ctx.lineWidth = 1
     
     var winX, winY, winH, winW
-    winX = p[0] - STEP_SIZE - 5
-    winY = p[1] - STEP_SIZE - 5
-    winH = winW = STEP_SIZE*2+10        
+    if (p == null) {
+        winX = winY = 0
+        winW = canvas.width
+        winH = canvas.height
+    }
+    else {
+        winX = p[0] - STEP_SIZE - 5
+        winY = p[1] - STEP_SIZE - 5
+        winH = winW = STEP_SIZE*2+10        
+    }
     
     var idt8 = ctx.getImageData(winX, winY, winW, winH).data;
     var idt = new Uint32Array(idt8.buffer)
@@ -316,11 +320,15 @@ function pMove(p, mi) {
 }
 function iRealCoord(img, p) {
     var r = [p[0]-img.winX, p[1]-img.winY]
-    console.assert(r[0] >= 0 && r[0] < img.winW && r[1] >= 0 && r[1] < img.winH)
-    return r
+    if (r[0] >= 0 && r[0] < img.winW && r[1] >= 0 && r[1] < img.winH)
+        return r
+    //console.assert(r[0] >= 0 && r[0] < img.winW && r[1] >= 0 && r[1] < img.winH)
+    return null
 }
 function iGet(imgdt, ap) {
     var p = iRealCoord(imgdt, ap)
+    if (p == null)
+        return 0xffffffff
     return imgdt.d[p[0] + p[1]*imgdt.winW]
 }
 function iMoveGet(imgdt, p, mi) {
@@ -330,6 +338,8 @@ function iMoveGet(imgdt, p, mi) {
 }
 function iPut(imgdt, ap, v) {
     var p = iRealCoord(imgdt, ap)
+    if (p == null)
+        return
     imgdt.d[p[0] + p[1]*imgdt.winW] = v
 }
 function pMoveEq(p, mi, t) {
@@ -369,7 +379,7 @@ function traceInner(trStart, img, cameFrom, coords)
     var reachedStart = false
     var oc = 0;
 
-    var upto = 20 // how far back to leave the paint trail so it wont interfere with the trace
+    var upto = INNER_UPTO // how far back to leave the paint trail so it wont interfere with the trace
     var upfrom = 0
     var didSeeBlue = false // used to lower upto when reaching the center
     while(true) 
@@ -378,6 +388,8 @@ function traceInner(trStart, img, cameFrom, coords)
         //console.log("PP " + iter + " " + vStr(p))
         if (iter == 14000 )
             break
+       // if (iter == 3391)
+       //     console.log("PROB")
 
         if ((curPntCount % STEP_SIZE) == 0) 
         { // want to add the first one
@@ -445,36 +457,24 @@ function traceOuter(trStart, img, cameFrom, coords)
 
     var upto = 0 // how far back to leave the paint trail so it wont interfere with the trace
     var upfrom = 20
-    var emark = coords.length // when going outer, for saving stroke
-    var emarkDirty = false
-    var emarkSawAt = null
-    var didSeeBlue = false // used to lower upto when reaching the center
+    
+    var img = renderLineOuter(coords, 0, upfrom, null)
+    var circStart = coords.length-upfrom-1-6
     while(true) 
     {
         ++iter
         //console.log("PP " + iter + " " + vStr(p))
-        if (iter == 14000 )
+        if (iter == 85000 )
             break
 
         if ((curPntCount % STEP_SIZE) == 0) 
         { // want to add the first one
             var pc = p.slice()
 
-            upto = emark - 20
+            upto = coords.length - 20
             coords.push(pc)
 
             // the order we send the color is 0xRRGGBB
-            img = renderLineOuter(coords, upto, upfrom, p, emark)
-            if (emarkDirty) {
-                while(true) { // move the emark forward until it's ahead of us so we won't miss it
-                    emark++;
-                    img = renderLineOuter(coords, upto, upfrom, p, emark)
-                    var v = iGet(img, emarkSawAt)
-                    if ((v & 0x00ff0000) != 0x00aa0000)
-                        break;
-                }
-                emarkDirty = false
-            }
             lastCoord = pc
         }
         ++curPntCount;
@@ -485,13 +485,12 @@ function traceOuter(trStart, img, cameFrom, coords)
         for(oi = 0; oi < 8; ++oi) {
             var mi = order[oi];
             var v = iMoveGet(img, p, mi) // the order we get the color is 0xAABBGGRR 
-            if ((v & 0x00ff0000) == 0x00ff0000)
-                didSeeBlue = true
-            if ((v & 0x00ff0000) == 0x00aa0000 && !emarkDirty) {
-                emarkDirty = true
-                emarkSawAt = p.slice()
-                pMove(emarkSawAt, mi)
-                //console.log(iter + " EE " + emark)
+            if ((v & 0x00ff0000) == 0x00aa0000) { 
+                
+                img = renderLineOuter(coords, circStart, upfrom, null)
+                console.log(iter + " CIRC")
+                circStart = coords.length-upfrom-1-6
+
             }
 
             v &= 0xff00ffff // mask the oc
@@ -558,7 +557,7 @@ function process(pathElem)
     //drawNormals(coords, realNormals)
     //openEnd(coords, conNormals)
 
-    openEnd(coords, realNormals)
+    openEnd(coords, conNormals)
 
     //var stp = coords[0].slice()
     var img = renderLineInner(coords, 0, 0, null, coords.length)
@@ -580,21 +579,29 @@ function process(pathElem)
     vNormalize(opdir)
     vMult(opdir, 4)
     vAddInto(opdir, coords[0])
-    var etp = findEdge(img, opdir, oedgeDir)
-    var ocameFrom = findStartCameFrom(img, etp)
     
     traceInner(stp, img, cameFrom, coords) 
+    //ctx.fillStyle = "#ffffff"
+    //ctx.fillRect(0,0,canvas.width,canvas.height)
+
+    var img = renderLineInner(coords, 0, 0, null, coords.length)    
+    var etp = findEdge(img, opdir, oedgeDir)
+    var ocameFrom = findStartCameFrom(img, etp)
    
     traceOuter(etp, img, ocameFrom, coords) 
     
     ctx.fillStyle = "#6600ff"
-    //drawPoints(coords,1)
+   // drawPoints(coords,1)
     //drawPoints(trp,1)
     //drawPoints([etp, opdir],2)
     ctx.fillStyle = "#00FF00"
     //drawPoints([stp],2)
     ctx.fillStyle = '#ffffff'
   //  ctx.fillRect(0,0,canvas.width,canvas.height)
+  
+    ctx.strokeStyle = "#000000"
+    ctx.lineWidth = 1
+
     draw(coords)
 }
 
